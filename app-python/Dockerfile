@@ -10,16 +10,27 @@
 #   - Single uvicorn worker (won't saturate CPU)
 # ──────────────────────────────────────────────────────────────────────────────
 
-FROM python:3.11
+# OPTIMIZED DOCKERFILE
+
+FROM python:3.11-slim AS builder
+
+WORKDIR /install
+COPY requirements.txt .
+RUN pip install --prefix=/install --no-cache-dir -r requirements.txt
+
+
+FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-COPY . .
+COPY --from=builder /install /usr/local
+COPY main.py .
 
-EXPOSE 8000
+RUN useradd -m appuser
+USER appuser
 
-# Single worker — intentional bottleneck for candidates to discover and fix.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "--threads", "2", "--timeout", "60", "main:app"]
+

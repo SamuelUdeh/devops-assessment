@@ -57,9 +57,9 @@ spec:
                 - "--eval"
                 - "db.adminCommand('ping').ok"
                 - "--quiet"
-            initialDelaySeconds: 20
+            initialDelaySeconds: 40
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 6
           livenessProbe:
             exec:
@@ -68,9 +68,9 @@ spec:
                 - "--eval"
                 - "db.adminCommand('ping').ok"
                 - "--quiet"
-            initialDelaySeconds: 60
+            initialDelaySeconds: 90
             periodSeconds: 20
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 5
       volumes:
         - name: mongo-storage

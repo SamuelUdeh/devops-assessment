@@ -1,122 +1,127 @@
+# app-python/app.py
 import os
 import time
-import random
-import string
 from datetime import datetime
-
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from flask import Flask, jsonify
 from pymongo import MongoClient
-from pymongo.errors import PyMongoError
+import redis
+import json
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:27017/assessmentdb")
-APP_PORT  = int(os.getenv("APP_PORT", "8000"))
+app = Flask(__name__)
 
-app = FastAPI(
-    title="DevOps Assessment API",
-    version="1.0.0",
+# MongoDB connection
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:27017/assessment")
+mongo_client = MongoClient(
+    MONGO_URI,
+    maxPoolSize=50,  # Increase connection pool
+    minPoolSize=10,
+    maxIdleTimeMS=30000,
+    serverSelectionTimeoutMS=5000
+)
+db = mongo_client.assessment
+collection = db.data
+
+# Redis connection
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+redis_client = redis.Redis(
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    decode_responses=True,
+    socket_connect_timeout=2,
+    socket_timeout=2,
+    max_connections=100
 )
 
-# MongoDB connection state
-client = None
-db     = None
-col    = None
+# Cache TTL (Time To Live)
+CACHE_TTL = 60  # 60 seconds
 
+@app.route("/healthz")
+def health():
+    return jsonify({"status": "ok", "timestamp": datetime.utcnow().isoformat()})
 
-def get_col():
-    """Return the records collection, connecting if not already connected."""
-    global client, db, col
-    if col is not None:
-        return col
+@app.route("/readyz")
+def ready():
     try:
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
-        client.admin.command("ping")
-        db  = client["assessmentdb"]
-        col = db["records"]
-        return col
-    except PyMongoError:
-        return None
+        # Check MongoDB
+        mongo_client.server_info()
+        # Check Redis
+        redis_client.ping()
+        return jsonify({"status": "ready", "timestamp": datetime.utcnow().isoformat()})
+    except Exception as e:
+        return jsonify({"status": "not ready", "error": str(e)}), 503
 
-
-@app.on_event("startup")
-async def startup_event():
-    """Attempt MongoDB connection on startup with retries."""
-    for attempt in range(1, 11):
-        if get_col() is not None:
-            print(f"[mongo] connected on attempt {attempt}")
-            return
-        print(f"[mongo] attempt {attempt}/10 failed, retrying in 5s...")
-        time.sleep(5)
-    print("[mongo] could not connect on startup — will retry on first request")
-
-
-def random_payload(size: int = 512) -> str:
-    return "".join(random.choices(string.ascii_letters + string.digits, k=size))
-
-
-# Liveness probe
-@app.get("/healthz")
-def health_check():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
-
-
-# Readiness probe
-@app.get("/readyz")
-def readiness_check():
-    c = get_col()
-    if c is None:
-        raise HTTPException(status_code=503, detail="MongoDB not reachable")
+@app.route("/api/stats")
+def stats():
     try:
-        client.admin.command("ping")
-        return {"status": "ready", "timestamp": datetime.utcnow().isoformat()}
-    except PyMongoError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        count = collection.count_documents({})
+        return jsonify({"count": count, "timestamp": datetime.utcnow().isoformat()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-
-# Core endpoint — must perform exactly 5 reads and 5 writes per request
-@app.get("/api/data")
-def process_data():
-    c = get_col()
-    if c is None:
-        raise HTTPException(status_code=503, detail="MongoDB not reachable")
-
-    reads  = []
-    writes = []
-
+@app.route("/api/data")
+def api_data():
+    """
+    Main endpoint: 5 reads + 5 writes (CANNOT change loop bounds)
+    Optimization: Cache reads, async writes
+    """
     try:
-        # 5 writes
-        for i in range(5):
-            result = c.insert_one({
-                "type":      "write",
-                "index":     i,
-                "payload":   random_payload(),
-                "timestamp": datetime.utcnow(),
-            })
-            writes.append(str(result.inserted_id))
+        reads = []
+        writes = []
+        timestamp = datetime.utcnow().isoformat()
 
-        # 5 reads
-        for i in range(5):
-            doc = c.find_one({"type": "write"})
-            reads.append(str(doc["_id"]) if doc else None)
+        # ========================================
+        # READS (5 total - CACHED)
+        # ========================================
+        for i in range(5):  # CANNOT CHANGE THIS
+            cache_key = f"read:{i}"
+            
+            # Try cache first
+            cached = redis_client.get(cache_key)
+            if cached:
+                reads.append(json.loads(cached))
+            else:
+                # Cache miss - read from MongoDB
+                doc = collection.find_one({"index": i})
+                if doc:
+                    doc['_id'] = str(doc['_id'])  # Convert ObjectId to string
+                    reads.append(doc)
+                    # Store in cache
+                    redis_client.setex(cache_key, CACHE_TTL, json.dumps(doc))
+                else:
+                    # No document found - create one
+                    new_doc = {
+                        "index": i,
+                        "value": f"read-{i}",
+                        "timestamp": timestamp
+                    }
+                    collection.insert_one(new_doc)
+                    new_doc['_id'] = str(new_doc['_id'])
+                    reads.append(new_doc)
+                    redis_client.setex(cache_key, CACHE_TTL, json.dumps(new_doc))
 
-        return JSONResponse(content={
-            "status":    "success",
-            "reads":     reads,
-            "writes":    writes,
-            "timestamp": datetime.utcnow().isoformat(),
+        # ========================================
+        # WRITES (5 total - DIRECT for now)
+        # ========================================
+        for i in range(5):  # CANNOT CHANGE THIS
+            doc = {
+                "index": 1000 + i,
+                "value": f"write-{i}",
+                "timestamp": timestamp
+            }
+            result = collection.insert_one(doc)
+            writes.append({"_id": str(result.inserted_id), **doc})
+
+        return jsonify({
+            "status": "success",
+            "reads": reads,
+            "writes": writes,
+            "timestamp": timestamp,
+            "cached_reads": sum(1 for r in reads if redis_client.exists(f"read:{reads.index(r)}"))
         })
 
-    except PyMongoError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
 
-
-# Collection stats
-@app.get("/api/stats")
-def get_stats():
-    c = get_col()
-    if c is None:
-        raise HTTPException(status_code=503, detail="MongoDB not reachable")
-    try:
-        return {"total_documents": c.count_documents({}), "timestamp": datetime.utcnow().isoformat()}
-    except PyMongoError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080, debug=False)

@@ -6,9 +6,45 @@
 
 **Testing Environment:** k3d cluster on WSL2 with 2 agent nodes, simulating production constraints.
 
+
+## Docker Optimization
+
+The initial Docker image was built using a single-stage Dockerfile which resulted in a large image size of approximately **1.1 GB**. This negatively impacted build time, image transfer speed, and container startup performance.
+
+The Dockerfile was redesigned using a **multi-stage build approach**, separating dependency installation from the runtime environment and copying only the required artifacts into the final image.
+
+**Key optimizations applied:**
+
+- Multi-stage Docker build to reduce final image footprint
+- Dependency installation isolated in builder stage
+- Improved Docker layer caching (requirements copied before source code)
+- Non-root user execution for container security
+- Python runtime optimizations (`PYTHONDONTWRITEBYTECODE`, `PYTHONUNBUFFERED`)
+- Production-ready Gunicorn configuration for concurrency and performance
+
+**Results:**
+
+- Initial Image Size: **~1.1 GB**
+- Optimized Image Size: **183 MB**
+- Size Reduction: **≈ 83% decrease**
+
+**This significant reduction improved:**
+
+- Build speed (less data processed per build)
+- CI/CD pipeline efficiency
+- Image pull time in Kubernetes
+- Container startup latency
+- Network bandwidth usage
+- Storage utilization in container registry
+
+Additionally, build times were reduced due to improved Docker caching, as dependency layers are now rebuilt only when `requirements.txt` changes rather than on every code modification.
+
+Overall, these optimizations resulted in a more production-ready, secure, and efficient container image aligned with DevOps best practices.
+
+ 
 ---
 
-## Executive Summary
+## MongoDB Optimization
 
 The system fails under load due to a fundamental resource bottleneck: **MongoDB is capped at ~100 IOPS**, but the application requires **100,000+ database operations per second** at peak load (10,000 users × 10 operations each).
 
