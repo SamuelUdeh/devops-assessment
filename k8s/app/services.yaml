@@ -58,11 +58,11 @@ spec:
     - host: assessment.local
       http:
         paths:
-          # ── Python app (default) ──────────────────────────────────────
+          # ── Node.js app (optimized with Redis caching) ─────────────────
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: app-python      # ← change to app-nodejs to switch
+                name: app-nodejs      # ← switched to Node.js
                 port:
                   number: 80

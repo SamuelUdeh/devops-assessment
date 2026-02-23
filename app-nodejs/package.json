@@ -1,7 +1,7 @@
 {
   "name": "devops-assessment-nodejs",
   "version": "1.0.0",
-  "description": "DevOps assessment app — Node.js/Express with intentional bottlenecks",
+  "description": "DevOps assessment app — Node.js/Express with Redis caching",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "mongodb": "^6.8.0"
+    "mongodb": "^6.8.0",
+    "redis": "^4.6.12"
   },
   "engines": {
     "node": ">=20.0.0"

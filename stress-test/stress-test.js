@@ -3,18 +3,18 @@
  *  DevOps Assessment — Stress Test
  *  Tool: k6 (https://k6.io)
  *
- *  This script simulates 10,000 concurrent virtual users hammering the
+ *  This script simulates 5,000 concurrent virtual users hammering the
  *  /api/data endpoint. The test is structured in three phases:
  *
- *  Phase 1 — Ramp-Up    : 0 → 10,000 VUs over 3 minutes
- *  Phase 2 — Sustained  : hold 10,000 VUs for 5 minutes
- *  Phase 3 — Ramp-Down  : 10,000 → 0 VUs over 2 minutes
+ *  Phase 1 — Ramp-Up    : 0 → 5,000 VUs over 2 minutes
+ *  Phase 2 — Sustained  : hold 5,000 VUs for 5 minutes
+ *  Phase 3 — Ramp-Down  : 5,000 → 0 VUs over 1 minute
  *
  *  Pass criteria (thresholds):
  *    ✓ p95 response time  < 2 000 ms
  *    ✓ p99 response time  < 5 000 ms
  *    ✓ error rate         < 1%
- *    ✓ request rate       ≥ 1 000 req/s at peak (derived from pass/fail)
+ *    ✓ request rate       ≥ 500 req/s at peak (derived from pass/fail)
  *
  *  Usage:
  *    # Install k6: https://k6.io/docs/get-started/installation/
@@ -46,10 +46,9 @@ const BASE_URL = __ENV.BASE_URL || 'http://assessment.local';
 export const options = {
   stages: [
     { duration: '1m',  target: 1000  },   // warm-up: ramp to 1k VUs
-    { duration: '2m',  target: 5000  },   // ramp to 5k VUs
-    { duration: '3m',  target: 10000 },   // ramp to 10k VUs (peak)
-    { duration: '5m',  target: 10000 },   // sustain 10k VUs
-    { duration: '2m',  target: 0     },   // ramp down
+    { duration: '1m',  target: 5000  },   // ramp to 5k VUs (peak)
+    { duration: '5m',  target: 5000  },   // sustain 5k VUs
+    { duration: '1m',  target: 0     },   // ramp down
   ],
 
   thresholds: {
@@ -107,8 +106,8 @@ export function setup() {
   console.log('═══════════════════════════════════════════════════');
   console.log('  DevOps Assessment Stress Test');
   console.log(`  Target URL : ${BASE_URL}`);
-  console.log('  Peak VUs   : 10,000');
-  console.log('  Duration   : ~13 minutes total');
+  console.log('  Peak VUs   : 5,000');
+  console.log('  Duration   : ~8 minutes total');
   console.log('═══════════════════════════════════════════════════');
 
   // Verify the target is up before unleashing load

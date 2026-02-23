@@ -22,8 +22,15 @@ db = mongo_client.assessment
 collection = db.data
 
 # Redis connection
+# Note: Kubernetes auto-injects REDIS_PORT as 'tcp://IP:port' for services named 'redis'
+# We use REDIS_SERVICE_PORT to avoid conflict, or fallback to default 6379
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_PORT_STR = os.getenv("REDIS_SERVICE_PORT", "6379")
+# Handle case where it might be a URL like 'tcp://IP:port'
+if REDIS_PORT_STR.startswith("tcp://"):
+    REDIS_PORT = 6379  # Use default
+else:
+    REDIS_PORT = int(REDIS_PORT_STR)
 redis_client = redis.Redis(
     host=REDIS_HOST,
     port=REDIS_PORT,
